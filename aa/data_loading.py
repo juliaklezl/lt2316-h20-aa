@@ -3,6 +3,9 @@
 import random
 import pandas as pd
 import torch
+#from lxml import etree  ## is it allowed to add things here?
+import xml.etree.ElementTree as ET
+from pathlib import Path ##?
 
 
 class DataLoaderBase:
@@ -69,7 +72,38 @@ class DataLoader(DataLoaderBase):
         # NOTE! I strongly suggest that you create multiple functions for taking care
         # of the parsing needed here. Avoid create a huge block of code here and try instead to 
         # identify the seperate functions needed.
-        pass
+        self.data_df = pd.DataFrame(columns = ["sentence_id", "token_id", "char_start_id", "char_end_id", "split"])
+        self.ner_df = pd.DataFrame(columns = ["sentence_id", "ner_id", "char_start_id", "char_end_id"])
+        # look through directories and find all xmls - 1st step, get all filenames 
+        # read/parse xmls  -> next steps: get sent-id, then make token-and ner lists, clean up this function
+        # extract ids
+        # split train into train and val
+        allfiles = Path(data_dir)
+        file_list = [f for f in allfiles.glob('**/*.xml') if f.is_file()]
+        x = 1
+        for file in file_list:
+            if str(file).split("/")[2] == "Test":
+                split = "test"
+            else:
+                split = "train"
+            print("file no", x)
+            print(file)
+            tree = ET.parse(file)
+            root = tree.getroot()
+            for elem in root:
+                print("Elem:", elem.attrib)
+                sent_id = elem.get("id")
+                for subelem in elem:
+                    if subelem.tag == "entity":
+                        print("Subelem:", subelem.attrib)
+                        char_start_id, char_end_id = subelem.get("charOffset").split("-")
+                        self.data_df.loc[x] = [sent_id, 0, char_start_id, char_end_id, split]
+            print(self.data_df)
+            x+=1
+            if x >= 5:
+                break
+        return self.data_df, self.ner_df
+       
 
 
     def get_y(self):
@@ -77,7 +111,7 @@ class DataLoader(DataLoaderBase):
         # the tensors should have the following following dimensions:
         # (NUMBER_SAMPLES, MAX_SAMPLE_LENGTH)
         # NOTE! the labels for each split should be on the GPU
-
+        pass
 
     def plot_split_ner_distribution(self):
         # should plot a histogram displaying ner label counts for each split
