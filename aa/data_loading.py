@@ -6,6 +6,8 @@ import torch
 #from lxml import etree  ## is it allowed to add things here?
 import xml.etree.ElementTree as ET
 from pathlib import Path ##?
+import random
+from collections import Counter
 
 
 class DataLoaderBase:
@@ -67,60 +69,76 @@ class DataLoader(DataLoaderBase):
 
     def fill_dfs(self, file_list):  # read data from xml into dataframes
         self.file_list = file_list
+        self.data_list = []
+        self.ner_list = []
         for file in file_list:
             if str(file).split("/")[2] == "Test":
                 split = "test"
             else:
-                split = "train"
+                split = random.choices(["train", "val"], weights = (80, 20), k = 1)[0]  # split train into train and eval 
             tree = ET.parse(file)
             root = tree.getroot()
             for elem in root:
                 sent_id = elem.get("id")
                 sentence = elem.get("text")
                 tokens = self.get_tokens(sentence)
-                for token in tokens:
-                    token_id = self.get_id(token, self.id2word)
-                    start_char = token[1]
-                    end_char = token[2]
-                    self.data_df.loc[self.x] = [sent_id, token_id, start_char, end_char, split]
-                    self.x += 1
                 for subelem in elem:
-                    if subelem.tag == "entity":
-                        ner_id = self.get_id(subelem.get("type"), self.id2ner)
+                    if subelem.tag == "entity":  # maybe try to split all multi-word entities?
+                        ner_id = self.get_id(subelem.get("type"), self.ner2id)
                         if len(subelem.get("charOffset").split("-")) == 2:
                             start_char, end_char = subelem.get("charOffset").split("-")
-                            self.ner_df.loc[self.x] = [sent_id, ner_id, start_char, end_char]
-                            self.x += 1
+                            self.ner_list.append([sent_id, ner_id, int(start_char), int(end_char)])
+                            #self.y += 1
                         else:
                             for word in subelem.get("charOffset").split(";"):
                                 start_char, end_char = word.split("-")
-                                self.ner_df.loc[self.x] = [sent_id, ner_id, start_char, end_char]
-                                self.x += 1
-        return self.data_df, self.ner_df
-                            
+                                self.ner_list.append([sent_id, ner_id, int(start_char), int(end_char)])
+                                #self.y += 1
+                for token in tokens:
+                    token_id = self.get_id(token[0], self.word2id)
+                    start_char = token[1]
+                    end_char = token[2]
+                    self.data_list.append([sent_id, token_id, start_char, end_char, split])
+                    #self.x += 1
+                
+            #print(self.x)
+            #if self.x >= 20000:
+            #    break
+        #return self.data_df, self.ner_df
+        pass                   
                         
                 
                 
-    def get_id(self, token, dic):  ## !!!!!
+    def get_id(self, token, dic):  
         self.token = token
         self.dic = dic
-        for key, value in dic.items():  
-            if token == value:
-                return key
-            dic[len(dic)] = token
-            return len(dic)
+        if token in dic:  
+            return dic[token]
+        else:
+            dic[token] = len(dic)
+            return dic[token]
         
     
     def get_tokens(self, sentence):  # split the sentence into tokens with start and end characters
         self.sentence = sentence
-        tokens = sentence.strip(".").strip(",").split(" ")  # remove . and , TODO: also remove ()? And what about stopwords, e.g., etc..?
+        tokens = sentence.split(" ")  # really not sure what to do with punctuation - example: 1-methyl-4-phenyl-1,2,3,6-tetrahydropyridine -> so some punctuation should stay there?
+        #tokens = sentence.strip(".,()").split(" ")  # remove . and , TODO: also remove ()? And what about stopwords, e.g., etc..?
         tokens_with_numbers = []
         i = 0
-        for token in tokens:
-            start_char = i
-            end_char = i + len(token)-1
-            i += len(token) + 1
-            tokens_with_numbers.append((token, start_char, end_char))
+        for token in tokens: 
+            if token != "":
+                token = token.lower()  # maybe not ideal, capitalization might be useful for brand names...???
+                start_char = i
+                last_char = token[-1]  # actual last character, vs. end_char is position of that character in sentence
+                #end_char = i + len(token)-1
+                #i += len(token) + 1
+                if last_char.isalnum():  # condition remove trailing punctuation in words
+                    end_char = i + len(token)-1
+                    i += len(token) + 1
+                else:
+                    end_char = i + len(token)-2 
+                    token = token.replace(last_char, "")  # still not perfect, sometimes more than one character in end...
+                tokens_with_numbers.append((token, start_char, end_char))
         return tokens_with_numbers
             
             
@@ -140,20 +158,30 @@ class DataLoader(DataLoaderBase):
         # identify the seperate functions needed.
         
         # initialize the data structures
-        self.data_df = pd.DataFrame(columns = ["sentence_id", "token_id", "char_start_id", "char_end_id", "split"])
-        self.ner_df = pd.DataFrame(columns = ["sentence_id", "ner_id", "char_start_id", "char_end_id"]) 
-        self.id2word = {}
-        self.id2ner = {}
-        self.x = 1  # count for dataframe rows
-        
-        # next steps: split train into train and val, make more efficient!!
+        #self.data_df = pd.DataFrame(columns = ["sentence_id", "token_id", "char_start_id", "char_end_id", "split"])
+        #self.ner_df = pd.DataFrame(columns = ["sentence_id", "ner_id", "char_start_id", "char_end_id"]) 
+        self.word2id = {}
+        self.ner2id = {}
+        #self.x = 0  # count for data_df rows
+        #self.y = 0  # count for ner_df rows
+        # next steps: make more efficient!!
         
         
         # read in the files
         allfiles = Path(data_dir)
         file_list = [f for f in allfiles.glob('**/*.xml') if f.is_file()]
         self.fill_dfs(file_list)
-       
+        self.data_df = pd.DataFrame(self.data_list, columns = ["sentence_id", "token_id", "char_start_id", "char_end_id", "split"])
+        self.ner_df = pd.DataFrame(self.ner_list, columns = ["sentence_id", "ner_id", "char_start_id", "char_end_id"]) 
+        
+        # transpose token-id dicts:
+        self.id2word = {y:x for x,y in self.word2id.items()}
+        self.id2ner = {y:x for x,y in self.ner2id.items()}
+        self.vocab = list(self.word2id.keys())
+        
+        #set max_sample_length
+        self.max_sample_length = 50
+        
         
         
        # for file in file_list:
@@ -189,7 +217,8 @@ class DataLoader(DataLoaderBase):
         #    x+=1
             #if x >= 5:
              #   break
-        return 
+        print("dataframes are ready")
+        pass
 
 
     def get_y(self):
@@ -197,10 +226,71 @@ class DataLoader(DataLoaderBase):
         # the tensors should have the following following dimensions:
         # (NUMBER_SAMPLES, MAX_SAMPLE_LENGTH)
         # NOTE! the labels for each split should be on the GPU
-        pass
-
+        
+        # divide df by splits
+        df_train = self.data_df[self.data_df.split=="train"]
+        df_val = self.data_df[self.data_df.split=="val"]
+        df_test = self.data_df[self.data_df.split=="test"]
+        print("split df")
+        
+        #get labels
+        self.train_labels = self.get_labels(df_train)
+        self.val_labels = self.get_labels(df_val)
+        self.test_labels = self.get_labels(df_test)          
+        
+        device = torch.device('cuda:0')
+        # put labels into tensors
+        train_tensor = torch.LongTensor(train_labels)
+        self.train_tensor = train_tensor.reshape([(len(train_labels)//self.max_sample_length),self.max_sample_length]).to(device)
+        val_tensor = torch.LongTensor(val_labels)
+        self.val_tensor = val_tensor.reshape([(len(val_labels)//self.max_sample_length),self.max_sample_length]).to(device)
+        test_tensor = torch.LongTensor(test_labels)
+        self.test_tensor = test_tensor.reshape([(len(test_labels)//self.max_sample_length),self.max_sample_length]).to(device)
+        
+        print("got y")
+        return self.train_tensor, self.val_tensor, self.test_tensor
+                       
+    def get_labels(self, df):
+        self.df = df
+        label_list = []
+        for i in range(len(df)):
+            row = df.iloc[i]
+            sent_id = row["sentence_id"]
+            char_onset = row["char_start_id"]
+            char_offset = row["char_end_id"]
+            print(i)
+            print(row)
+            print(sent_id, char_onset)
+            #same_sent = self.ner_df[self.ner_df["sentence_id"] == sent_id]
+            rightline = self.ner_df.loc[(self.ner_df["sentence_id"] == sent_id) & (self.ner_df["char_start_id"] == char_onset) & (self.ner_df["char_end_id"] == char_offset)]
+            #print(same_sent)
+            #same_token = same_sent[same_sent["char_start_id"] == char_onset]
+            #same_token = same_token[same_sent["char_end_id"] == char_offset]
+            print(rightline)
+            #print(same_token)
+            #print("WOHOO!", len(same_token))
+            if len(rightline) > 0:
+                print(rightline["ner_id"])
+                label = int(rightline["ner_id"])  ## this has some kind of problem...!!!
+            else:
+                label = 4 # new label for "not an ner"             
+            label_list.append(label)
+        label_list = label_list[:(len(label_list)-len(label_list)%self.max_sample_length)]
+        print(label_list)
+        return label_list              
+                       
     def plot_split_ner_distribution(self):
         # should plot a histogram displaying ner label counts for each split
+        
+        # get label counts
+        train_counts = Counter(self.train_labels)
+        val_counts = Counter(self.val_labels)
+        test_counts = Counter(self.test_labels)
+        
+        # put counts into a dataframe:
+        counts_df = pd.DataFrame([train_counts, val_counts, test_counts], index=['train', 'val', 'test'])
+        plt = counts_df.hist()
+        plt.show()
         pass
 
 
