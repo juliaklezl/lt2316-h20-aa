@@ -8,7 +8,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path ##?
 import random
 from collections import Counter
-
+import matplotlib.pyplot as plt
 
 class DataLoaderBase:
 
@@ -240,12 +240,12 @@ class DataLoader(DataLoaderBase):
         
         device = torch.device('cuda:0')
         # put labels into tensors
-        train_tensor = torch.LongTensor(train_labels)
-        self.train_tensor = train_tensor.reshape([(len(train_labels)//self.max_sample_length),self.max_sample_length]).to(device)
-        val_tensor = torch.LongTensor(val_labels)
-        self.val_tensor = val_tensor.reshape([(len(val_labels)//self.max_sample_length),self.max_sample_length]).to(device)
-        test_tensor = torch.LongTensor(test_labels)
-        self.test_tensor = test_tensor.reshape([(len(test_labels)//self.max_sample_length),self.max_sample_length]).to(device)
+        train_tensor = torch.LongTensor(self.train_labels)
+        self.train_tensor = train_tensor.reshape([(len(self.train_labels)//self.max_sample_length),self.max_sample_length]).to(device)
+        val_tensor = torch.LongTensor(self.val_labels)
+        self.val_tensor = val_tensor.reshape([(len(self.val_labels)//self.max_sample_length),self.max_sample_length]).to(device)
+        test_tensor = torch.LongTensor(self.test_labels)
+        self.test_tensor = test_tensor.reshape([(len(self.test_labels)//self.max_sample_length),self.max_sample_length]).to(device)
         
         print("got y")
         return self.train_tensor, self.val_tensor, self.test_tensor
@@ -253,34 +253,56 @@ class DataLoader(DataLoaderBase):
     def get_labels(self, df):
         self.df = df
         label_list = []
-        for i in range(len(df)):
-            row = df.iloc[i]
-            sent_id = row["sentence_id"]
-            char_onset = row["char_start_id"]
-            char_offset = row["char_end_id"]
-            print(i)
-            print(row)
-            print(sent_id, char_onset)
+        
+        sent_ids = [s for s in df["sentence_id"]]
+        start_ids = [s for s in df["char_start_id"]]
+        end_ids = [s for s in df["char_end_id"]]
+        id_tuples = list(zip(sent_ids, start_ids, end_ids))
+        
+        label_sent_ids = [s for s in self.ner_df["sentence_id"]]
+        label_start_ids = [s for s in self.ner_df["char_start_id"]]
+        label_end_ids = [s for s in self.ner_df["char_end_id"]]
+        labels = [s for s in self.ner_df["ner_id"]]
+        label_tuples = list(zip(label_sent_ids, label_start_ids, label_end_ids))
+        #print(label_tuples)
+        
+        for t in id_tuples:
+            if t in label_tuples:
+                #print("same")
+                label = labels[label_tuples.index(t)]
+            else:
+                label = 4
+            label_list.append(label)            
+        
+        #for i in range(len(df)):
+         #   row = df.iloc[i]
+          #  sent_id = row["sentence_id"]
+           # char_onset = row["char_start_id"]
+            #char_offset = row["char_end_id"]
+    #        print(i)
+     #       print(row)
+      #      print(sent_id, char_onset)
             #same_sent = self.ner_df[self.ner_df["sentence_id"] == sent_id]
-            rightline = self.ner_df.loc[(self.ner_df["sentence_id"] == sent_id) & (self.ner_df["char_start_id"] == char_onset) & (self.ner_df["char_end_id"] == char_offset)]
+       #     rightline = self.ner_df.loc[(self.ner_df["sentence_id"] == sent_id) & (self.ner_df["char_start_id"] == char_onset) & (self.ner_df["char_end_id"] == char_offset)]
             #print(same_sent)
             #same_token = same_sent[same_sent["char_start_id"] == char_onset]
             #same_token = same_token[same_sent["char_end_id"] == char_offset]
-            print(rightline)
+        #    print(rightline)
             #print(same_token)
             #print("WOHOO!", len(same_token))
-            if len(rightline) > 0:
-                print(rightline["ner_id"])
-                label = int(rightline["ner_id"])  ## this has some kind of problem...!!!
-            else:
-                label = 4 # new label for "not an ner"             
-            label_list.append(label)
-        label_list = label_list[:(len(label_list)-len(label_list)%self.max_sample_length)]
-        print(label_list)
+         #   if len(rightline) > 0:
+          #      print(rightline["ner_id"])
+           #     label = int(rightline["ner_id"])  ## this has some kind of problem...!!!
+            #else:
+    #            label = 4 # new label for "not an ner"             
+     #       label_list.append(label)
+        label_list = label_list[:(len(label_list)-len(label_list)%self.max_sample_length)]  ##?? really understand this&explain in readme!
+        #print(label_list)
         return label_list              
                        
     def plot_split_ner_distribution(self):
         # should plot a histogram displaying ner label counts for each split
+        self.get_y()
         
         # get label counts
         train_counts = Counter(self.train_labels)
@@ -289,7 +311,7 @@ class DataLoader(DataLoaderBase):
         
         # put counts into a dataframe:
         counts_df = pd.DataFrame([train_counts, val_counts, test_counts], index=['train', 'val', 'test'])
-        plt = counts_df.hist()
+        counts_df.plot(kind='bar')   # asked for histogram, but this seems to make more sense...
         plt.show()
         pass
 
