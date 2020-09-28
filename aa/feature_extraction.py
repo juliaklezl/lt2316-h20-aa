@@ -2,6 +2,9 @@
 #basics
 import pandas as pd
 import torch
+import nltk
+nltk.download('averaged_perceptron_tagger') # needed for pos tags
+
 
 
 def extract_features(data:pd.DataFrame, max_sample_length:int, id2w):
@@ -19,11 +22,35 @@ def extract_features(data:pd.DataFrame, max_sample_length:int, id2w):
     start_ids = [s for s in data["char_start_id"]]
     end_ids = [s for s in data["char_end_id"]]
     split = [s for s in data["split"]]
-    all_rows = list(zip(sent_ids, token_ids, start_ids, end_ids, split))            
+    all_rows = list(zip(sent_ids, token_ids, start_ids, end_ids, split))                
     
     train_features = [] # initialize feature lists
     val_features = []
     test_features = []
+    
+    pos2id = {}  # dictionary for mapping pos-tags to ids
+    pos_ids = [] # initialize list of all pos ids
+    
+    sentences = []
+    tokens_for_pos = token_ids.copy()
+    for i in range(int(len(tokens_for_pos)/max_sample_length)):  # divide up into sentences
+        token_ids = tokens_for_pos[:max_sample_length]
+        tokens = [id2w[i] for i in token_ids if not id2w[i] == "padding"]  # get tokens instead of ids
+        del tokens_for_pos[:max_sample_length] 
+        sentences.append(tokens)
+    for sentence in sentences:
+        for i, token in enumerate(sentence):
+            if len(token) == 0:
+                sentence[i] = "x"  # dummy to avoid problems with empty tokens
+        pos_list = nltk.pos_tag(sentence)  # tag all tokens
+        for token, tag in pos_list:  # fill and access mapping dictionary + list of pos tags
+            if tag in pos2id:
+                pos_ids.append(int(pos2id[tag]))
+            else:
+                pos2id[tag] = len(pos2id) + 1  # start ids at 1 (because 0 reserved for padding)
+                pos_ids.append(int(pos2id[tag]))
+        pos_ids = pos_ids + ([0] * (max_sample_length - len(sentence))) # add label 0 for paddings
+    
     
     for i in range(len(all_rows)):
         row = all_rows[i]
@@ -44,7 +71,8 @@ def extract_features(data:pd.DataFrame, max_sample_length:int, id2w):
             has_punct = 0
         else:
             has_punct = 1
-        features = [at_start, at_end, prior_word, next_word, word_length, has_punct] # create feature list and append to correct split
+        pos = pos_ids[i]
+        features = [at_start, at_end, prior_word, next_word, word_length, has_punct, pos] # create feature list and append to correct split
         if row[4] == "train":
             train_features.append(features)
         elif row[4] == "val":
@@ -56,10 +84,10 @@ def extract_features(data:pd.DataFrame, max_sample_length:int, id2w):
     
     # convert lists to tensors and reshape to correct dimensions
     train_f_tensor = torch.LongTensor(train_features)
-    train_f_tensor = train_f_tensor.reshape([(len(train_f_tensor)//max_sample_length),max_sample_length, 6]).to(device) # number features hardcoded: 6
+    train_f_tensor = train_f_tensor.reshape([(len(train_f_tensor)//max_sample_length),max_sample_length, 7]).to(device) # number features hardcoded: 7
     val_f_tensor = torch.LongTensor(val_features)
-    val_f_tensor = val_f_tensor.reshape([(len(val_f_tensor)//max_sample_length),max_sample_length, 6]).to(device)
+    val_f_tensor = val_f_tensor.reshape([(len(val_f_tensor)//max_sample_length),max_sample_length, 7]).to(device)
     test_f_tensor = torch.LongTensor(test_features)
-    test_f_tensor = test_f_tensor.reshape([(len(test_f_tensor)//max_sample_length),max_sample_length, 6]).to(device)
+    test_f_tensor = test_f_tensor.reshape([(len(test_f_tensor)//max_sample_length),max_sample_length, 7]).to(device)
 
     return train_f_tensor, val_f_tensor, test_f_tensor

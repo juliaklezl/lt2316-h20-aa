@@ -8,6 +8,7 @@ from pathlib import Path
 import random
 from collections import Counter
 import matplotlib.pyplot as plt
+from matplotlib_venn import venn3, venn3_circles
 
 class DataLoaderBase:
 
@@ -130,6 +131,8 @@ class DataLoader(DataLoaderBase):
     
     def get_tokens(self, sentence):  # split the sentence into tokens with start and end characters
         self.sentence = sentence
+        sentence = sentence.replace(";", "; ")
+        sentence = sentence.replace("/", "/ ")
         tokens = sentence.split(" ") 
         tokens_with_numbers = []
         i = 0
@@ -141,7 +144,7 @@ class DataLoader(DataLoaderBase):
                 if last_char.isalnum():  # condition to remove trailing punctuation in words
                     end_char = i + len(token)-1
                     i += len(token) + 1
-                else:
+                else: 
                     end_char = i + len(token)-2 
                     token = token.replace(last_char, "")
                 tokens_with_numbers.append((token, start_char, end_char))
@@ -254,13 +257,13 @@ class DataLoader(DataLoaderBase):
         # FOR BONUS PART!!
         # Should plot a histogram displaying the distribution of sample lengths in number tokens
         sent_ids = [s for s in self.data_df["sentence_id"]]
-        token_counts = Counter(sent_ids)
-        del token_counts[0]
+        token_counts = Counter(sent_ids)  # count sentence length (= number of times that sent id appears in df)
+        del token_counts[0]  # get rid of padding sentence_id
+        token_dict = dict(token_counts)
+       
+        counts_list = [i for i in token_dict.values()] 
         
-        print(token_counts)
-        
-        counts_df = pd.DataFrame.from_dict(dict(token_counts), orient = "index")
-        counts_df.plot(kind='hist', bins = 15) 
+        plt.hist(counts_list, 50) # plot how many sentences have 1 tokens, 2 tokens, etc., bin size set to 50
         plt.show()
         pass
 
@@ -269,12 +272,31 @@ class DataLoader(DataLoaderBase):
         # FOR BONUS PART!!
         # Should plot a histogram displaying the distribution of number of NERs in sentences
         # e.g. how many sentences has 1 ner, 2 ner and so on
+        
+        count_list = []
+        for sent_id in self.ner_df["sentence_id"]:
+            count = len(self.ner_df[self.ner_df["sentence_id"] == sent_id])  # get number of ner's per sentence 
+            count_list.append(count)
+            
+        plt.hist(count_list, 50)
+        plt.show()
         pass
 
 
     def plot_ner_cooccurence_venndiagram(self):
         # FOR BONUS PART!!
         # Should plot a ven-diagram displaying how the ner labels co-occur
+        
+        all_counts = []
+        for ner in [0, 1, 2, 3, 4]:
+            n_df = self.ner_df[self.ner_df["ner_id"] == ner]
+            sents = [i for i in n_df["sentence_id"]] 
+            all_counts.append(sents)
+            
+        list0, list1, list2, list3, list4 = all_counts
+        list2 = list2 + list3
+        venn3([set(list1), set(list2), set(list4)])
+        plt.show()
         pass
 
 
