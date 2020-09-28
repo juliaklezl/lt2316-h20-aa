@@ -3,9 +3,8 @@
 import random
 import pandas as pd
 import torch
-#from lxml import etree  ## is it allowed to add things here?
 import xml.etree.ElementTree as ET
-from pathlib import Path ##?
+from pathlib import Path
 import random
 from collections import Counter
 import matplotlib.pyplot as plt
@@ -67,10 +66,12 @@ class DataLoader(DataLoaderBase):
         super().__init__(data_dir=data_dir, device=device)
 
 
-    def fill_dfs(self, file_list):  # read data from xml into dataframes
+    def fill_dfs(self, file_list):  # read data from xml into lists of lists (for df later)
         self.file_list = file_list
         self.data_list = []
         self.ner_list = []
+        i_data_list = [] # intermediate list for storage
+        self.max_sample_length = 0
         for file in file_list:
             if str(file).split("/")[2] == "Test":
                 split = "test"
@@ -80,73 +81,71 @@ class DataLoader(DataLoaderBase):
             root = tree.getroot()
             for elem in root:
                 sent_id = elem.get("id")
-                sentence = elem.get("text")
-                tokens = self.get_tokens(sentence)
+                sentence = elem.get("text")                
+                tokens = self.get_tokens(sentence)  # tokenize sentence, see helper function below
+                sentence_token_list = []
+                if len(tokens) > self.max_sample_length:  # get length of longest sentence (max_sample_length)
+                    self.max_sample_length = len(tokens)
                 for subelem in elem:
-                    if subelem.tag == "entity":  # maybe try to split all multi-word entities?
+                    if subelem.tag == "entity": # add entities to ner_df:
                         ner_id = self.get_id(subelem.get("type"), self.ner2id)
-                        if len(subelem.get("charOffset").split("-")) == 2:
-                            start_char, end_char = subelem.get("charOffset").split("-")
-                            self.ner_list.append([sent_id, ner_id, int(start_char), int(end_char)])
-                            #self.y += 1
+                        if len(subelem.get("charOffset").split("-")) == 2: # for single and continuous compund words:
+                            start = int(subelem.get("charOffset").split("-")[0])
+                            for word in subelem.get("text").split(" "):  # separate at spaces
+                                start_char = int(start)
+                                end_char = int(start) + len(word) - 1
+                                start += len(word) + 1
+                                self.ner_list.append([sent_id, ner_id, int(start_char), int(end_char)])
                         else:
-                            for word in subelem.get("charOffset").split(";"):
+                            for word in subelem.get("charOffset").split(";"):  # for interrupted compound words
                                 start_char, end_char = word.split("-")
                                 self.ner_list.append([sent_id, ner_id, int(start_char), int(end_char)])
-                                #self.y += 1
-                for token in tokens:
+                for token in tokens:  # add tokens to data_df:
                     token_id = self.get_id(token[0], self.word2id)
                     start_char = token[1]
                     end_char = token[2]
-                    self.data_list.append([sent_id, token_id, start_char, end_char, split])
-                    #self.x += 1
-                
-            #print(self.x)
-            #if self.x >= 20000:
-            #    break
-        #return self.data_df, self.ner_df
+                    sentence_token_list.append([sent_id, token_id, start_char, end_char, split])
+                    
+            i_data_list.append(sentence_token_list)           
+        for sent_l in i_data_list:
+            if len(sent_l) > 0:
+                split = sent_l[-1][4]
+                if len(sent_l) < self.max_sample_length:  # add padding so that all samples have same length
+                    for i in range(self.max_sample_length - len(sent_l)):
+                        sent_l.append([0, 0, 0, 0, split]) 
+                self.data_list.extend(sent_l)   
         pass                   
                         
                 
                 
-    def get_id(self, token, dic):  
+    def get_id(self, token, dic):  # helper function to access and update the word2id and ner2id dictionaries
         self.token = token
         self.dic = dic
         if token in dic:  
             return dic[token]
         else:
-            dic[token] = len(dic)
+            dic[token] = len(dic) +1  # id starts at 1, since 0 is reserved for paddings
             return dic[token]
         
     
     def get_tokens(self, sentence):  # split the sentence into tokens with start and end characters
         self.sentence = sentence
-        tokens = sentence.split(" ")  # really not sure what to do with punctuation - example: 1-methyl-4-phenyl-1,2,3,6-tetrahydropyridine -> so some punctuation should stay there?
-        #tokens = sentence.strip(".,()").split(" ")  # remove . and , TODO: also remove ()? And what about stopwords, e.g., etc..?
+        tokens = sentence.split(" ") 
         tokens_with_numbers = []
         i = 0
         for token in tokens: 
             if token != "":
-                token = token.lower()  # maybe not ideal, capitalization might be useful for brand names...???
+                token = token.lower() 
                 start_char = i
                 last_char = token[-1]  # actual last character, vs. end_char is position of that character in sentence
-                #end_char = i + len(token)-1
-                #i += len(token) + 1
-                if last_char.isalnum():  # condition remove trailing punctuation in words
+                if last_char.isalnum():  # condition to remove trailing punctuation in words
                     end_char = i + len(token)-1
                     i += len(token) + 1
                 else:
                     end_char = i + len(token)-2 
-                    token = token.replace(last_char, "")  # still not perfect, sometimes more than one character in end...
+                    token = token.replace(last_char, "")
                 tokens_with_numbers.append((token, start_char, end_char))
         return tokens_with_numbers
-            
-            
-            
-            
-            
-                    
-                
     
     
     def _parse_data(self,data_dir):
@@ -157,66 +156,25 @@ class DataLoader(DataLoaderBase):
         # of the parsing needed here. Avoid create a huge block of code here and try instead to 
         # identify the seperate functions needed.
         
-        # initialize the data structures
-        #self.data_df = pd.DataFrame(columns = ["sentence_id", "token_id", "char_start_id", "char_end_id", "split"])
-        #self.ner_df = pd.DataFrame(columns = ["sentence_id", "ner_id", "char_start_id", "char_end_id"]) 
+        # initialize dictionaries
         self.word2id = {}
-        self.ner2id = {}
-        #self.x = 0  # count for data_df rows
-        #self.y = 0  # count for ner_df rows
-        # next steps: make more efficient!!
-        
+        self.ner2id = {}        
         
         # read in the files
         allfiles = Path(data_dir)
         file_list = [f for f in allfiles.glob('**/*.xml') if f.is_file()]
         self.fill_dfs(file_list)
+        
+        # make DataFrames
         self.data_df = pd.DataFrame(self.data_list, columns = ["sentence_id", "token_id", "char_start_id", "char_end_id", "split"])
         self.ner_df = pd.DataFrame(self.ner_list, columns = ["sentence_id", "ner_id", "char_start_id", "char_end_id"]) 
         
-        # transpose token-id dicts:
+        # transpose token-id dicts to id-token and get vocab:
         self.id2word = {y:x for x,y in self.word2id.items()}
+        self.id2word[0] = "padding"  # special token for artificially added "tokens"
         self.id2ner = {y:x for x,y in self.ner2id.items()}
         self.vocab = list(self.word2id.keys())
-        
-        #set max_sample_length
-        self.max_sample_length = 50
-        
-        
-        
-       # for file in file_list:
-       #     if str(file).split("/")[2] == "Test":
-       #         split = "test"
-       #     else:
-       #         split = "train"
-       #     print("file no", x)
-       #     print(file)
-       #     tree = ET.parse(file)
-       #     root = tree.getroot()
-       #     for elem in root:
-       #         print("Elem:", elem.attrib)
-       #         sent_id = elem.get("id")
-       #         for subelem in elem:
-       #             if subelem.tag == "entity":
-       #                 word = subelem.get("text").lower()
-       #                 if word in voc:  
-       #                     token_id = voc[word]
-       #                 else:
-       #                     voc[word] = len(voc)
-       #                     token_id = voc[word]
-       #                 print("Subelem:", subelem.attrib)
-       #                 if len(subelem.get("charOffset").split("-")) == 2:
-       #                     char_start_id, char_end_id = subelem.get("charOffset").split("-")
-       #                 else:
-       #                     char_start_id, char_end_id = (subelem.get("charOffset").split("-")[0], subelem.get("charOffset").split("-")[1].split(";")[1]), (subelem.get("charOffset").split("-")[1].split(";")[0], subelem.get("charOffset").split("-")[1])  
-                        # super ugly, used for discontinued 2-part words, tuberculosis (and something else) drugs, e.g., now represented as (40, 50), (45, 55) -> better to just take very first and very last?
-        #                ner_id = subelem.get("type") # chose to take all 4 categories, because less information loss, and big meaning differences...
-        #                self.data_df.loc[x] = [sent_id, token_id, char_start_id, char_end_id, split]
-        #                self.ner_df.loc[x] = [sent_id, ner_id, char_start_id, char_end_id]
-        #    print(voc)
-        #    x+=1
-            #if x >= 5:
-             #   break
+
         print("dataframes are ready")
         pass
 
@@ -239,7 +197,7 @@ class DataLoader(DataLoaderBase):
         self.test_labels = self.get_labels(df_test)          
         
         device = torch.device('cuda:0')
-        # put labels into tensors
+        # put labels into tensors and reshape
         train_tensor = torch.LongTensor(self.train_labels)
         self.train_tensor = train_tensor.reshape([(len(self.train_labels)//self.max_sample_length),self.max_sample_length]).to(device)
         val_tensor = torch.LongTensor(self.val_labels)
@@ -250,11 +208,12 @@ class DataLoader(DataLoaderBase):
         print("got y")
         return self.train_tensor, self.val_tensor, self.test_tensor
                        
-    def get_labels(self, df):
+    def get_labels(self, df):  # helper function to extract ner labels from dataframe
         self.df = df
         label_list = []
         
-        sent_ids = [s for s in df["sentence_id"]]
+        # extract relevant info from df
+        sent_ids = [s for s in df["sentence_id"]] 
         start_ids = [s for s in df["char_start_id"]]
         end_ids = [s for s in df["char_end_id"]]
         id_tuples = list(zip(sent_ids, start_ids, end_ids))
@@ -264,40 +223,15 @@ class DataLoader(DataLoaderBase):
         label_end_ids = [s for s in self.ner_df["char_end_id"]]
         labels = [s for s in self.ner_df["ner_id"]]
         label_tuples = list(zip(label_sent_ids, label_start_ids, label_end_ids))
-        #print(label_tuples)
         
+        # compare whether token is an entity. If not, assign label 0
         for t in id_tuples:
             if t in label_tuples:
-                #print("same")
                 label = labels[label_tuples.index(t)]
             else:
-                label = 4
+                label = 0
             label_list.append(label)            
         
-        #for i in range(len(df)):
-         #   row = df.iloc[i]
-          #  sent_id = row["sentence_id"]
-           # char_onset = row["char_start_id"]
-            #char_offset = row["char_end_id"]
-    #        print(i)
-     #       print(row)
-      #      print(sent_id, char_onset)
-            #same_sent = self.ner_df[self.ner_df["sentence_id"] == sent_id]
-       #     rightline = self.ner_df.loc[(self.ner_df["sentence_id"] == sent_id) & (self.ner_df["char_start_id"] == char_onset) & (self.ner_df["char_end_id"] == char_offset)]
-            #print(same_sent)
-            #same_token = same_sent[same_sent["char_start_id"] == char_onset]
-            #same_token = same_token[same_sent["char_end_id"] == char_offset]
-        #    print(rightline)
-            #print(same_token)
-            #print("WOHOO!", len(same_token))
-         #   if len(rightline) > 0:
-          #      print(rightline["ner_id"])
-           #     label = int(rightline["ner_id"])  ## this has some kind of problem...!!!
-            #else:
-    #            label = 4 # new label for "not an ner"             
-     #       label_list.append(label)
-        label_list = label_list[:(len(label_list)-len(label_list)%self.max_sample_length)]  ##?? really understand this&explain in readme!
-        #print(label_list)
         return label_list              
                        
     def plot_split_ner_distribution(self):
@@ -311,7 +245,7 @@ class DataLoader(DataLoaderBase):
         
         # put counts into a dataframe:
         counts_df = pd.DataFrame([train_counts, val_counts, test_counts], index=['train', 'val', 'test'])
-        counts_df.plot(kind='bar')   # asked for histogram, but this seems to make more sense...
+        counts_df.plot(kind='bar') 
         plt.show()
         pass
 
@@ -319,6 +253,15 @@ class DataLoader(DataLoaderBase):
     def plot_sample_length_distribution(self):
         # FOR BONUS PART!!
         # Should plot a histogram displaying the distribution of sample lengths in number tokens
+        sent_ids = [s for s in self.data_df["sentence_id"]]
+        token_counts = Counter(sent_ids)
+        del token_counts[0]
+        
+        print(token_counts)
+        
+        counts_df = pd.DataFrame.from_dict(dict(token_counts), orient = "index")
+        counts_df.plot(kind='hist', bins = 15) 
+        plt.show()
         pass
 
 
