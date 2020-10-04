@@ -28,6 +28,19 @@ def extract_features(data:pd.DataFrame, max_sample_length:int, id2w):
     val_features = []
     test_features = []
     
+    train = data[data.split == "train"]
+    tokens_in_train = train.token_id.unique()  # get list of all tokens in training data
+    test_val = data[data.split != "train"]
+    tokens_test_val = test_val.token_id.unique() # get list of tokens in test + val data
+    tokens_unknown = [i for i in tokens_test_val if i not in tokens_in_train] # get list of "unknown" tokens
+    
+    for row in all_rows:
+        if row[4] != "train":
+            if row[1] in tokens_unknown:
+                row = (row[0], -1, row[2], row[3], row[4])  # label unseen data as unknown (-1)
+    
+    
+    
     pos2id = {}  # dictionary for mapping pos-tags to ids
     pos_ids = [] # initialize list of all pos ids
     

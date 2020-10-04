@@ -8,7 +8,8 @@ from pathlib import Path
 import random
 from collections import Counter
 import matplotlib.pyplot as plt
-from matplotlib_venn import venn3, venn3_circles
+#from matplotlib_venn import venn3, venn3_circles
+from venn import venn
 
 class DataLoaderBase:
 
@@ -90,13 +91,25 @@ class DataLoader(DataLoaderBase):
                 for subelem in elem:
                     if subelem.tag == "entity": # add entities to ner_df:
                         ner_id = self.get_id(subelem.get("type"), self.ner2id)
-                        if len(subelem.get("charOffset").split("-")) == 2: # for single and continuous compund words:
+                        if len(subelem.get("charOffset").split("-")) == 2: # for single and continuous compound words:
                             start = int(subelem.get("charOffset").split("-")[0])
                             for word in subelem.get("text").split(" "):  # separate at spaces
-                                start_char = int(start)
-                                end_char = int(start) + len(word) - 1
-                                start += len(word) + 1
-                                self.ner_list.append([sent_id, ner_id, int(start_char), int(end_char)])
+                                if word != "":
+                                    last_char = word[-1]
+                                    start_char = int(start)
+                                    if last_char.isalnum():  # condition to remove trailing punctuation (mainly "-")
+                                        end_char = int(start) + len(word) - 1
+                                        start += len(word) + 1
+                                    else: 
+                                        j = 0
+                                        while not last_char.isalnum(): 
+                                            word = word.replace(last_char, "")
+                                            j += 1
+                                            last_char = word[-1]
+                                        end_char = int(start) + len(word)-1
+                                        start += len(word) + (1+j)
+                                    self.ner_list.append([sent_id, ner_id, int(start_char), int(end_char)])
+                               
                         else:
                             for word in subelem.get("charOffset").split(";"):  # for interrupted compound words
                                 start_char, end_char = word.split("-")
@@ -131,8 +144,8 @@ class DataLoader(DataLoaderBase):
     
     def get_tokens(self, sentence):  # split the sentence into tokens with start and end characters
         self.sentence = sentence
-        sentence = sentence.replace(";", "; ")
-        sentence = sentence.replace("/", "/ ")
+        sentence = sentence.replace(";", " ")
+        sentence = sentence.replace("/", " ")
         tokens = sentence.split(" ") 
         tokens_with_numbers = []
         i = 0
@@ -144,10 +157,20 @@ class DataLoader(DataLoaderBase):
                 if last_char.isalnum():  # condition to remove trailing punctuation in words
                     end_char = i + len(token)-1
                     i += len(token) + 1
-                else: 
-                    end_char = i + len(token)-2 
-                    token = token.replace(last_char, "")
+                elif any(i.isalnum() for i in token): 
+                    j = 0
+                    while not last_char.isalnum():
+                        token = token.replace(last_char, "")
+                        j += 1
+                        last_char = token[-1]
+                    end_char = i + len(token)-1
+                    i += len(token) + (1+j)
+                else:
+                    i += len(token) +1
+                    continue
                 tokens_with_numbers.append((token, start_char, end_char))
+            #else:
+            #    i += 1
         return tokens_with_numbers
     
     
@@ -294,8 +317,8 @@ class DataLoader(DataLoaderBase):
             all_counts.append(sents)
             
         list0, list1, list2, list3, list4 = all_counts
-        list2 = list2 + list3
-        venn3([set(list1), set(list2), set(list4)])
+        #list2 = list2 + list3
+        venn({"group": set(list1), "drug_n": set(list2), "drug": set(list3), "brand": set(list4)})
         plt.show()
         pass
 

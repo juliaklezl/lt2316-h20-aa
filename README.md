@@ -38,3 +38,4 @@ I chose to use the following 7 features for this task:
 ## Notes on Part Bonus.
 
 I was not completely sure what I was meant to do in the first plot. I interpreted it in a way that I counted how many sentences have x tokens. For the histogram, I chose to use 50 bins, since that results in a plot that's both fine-grained enough to be interesting and still big enough to be visible. I followed the same approach for the second plot. In the third one, I used matplotlib-venn to draw the diagram and pip installed this on mltgpu (pip install --user matplotlib-venn). Since this library can only draw 3 circles at most, I did combine the drug and drug_n category here.
+UPDATE: Instead of matplotlib-venn I switched to using pyvenn, since this package allows diagrams with more than 3 groups. I installed it with pip (pip install --user venn). Now all 4 groups are displayed separately.
